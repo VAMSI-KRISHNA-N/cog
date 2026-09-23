@@ -164,40 +164,64 @@ def main():
         serial_iface.close()
         sys.exit(1)
 
-    # 3. Open Video Stream
-    src = int(args.source) if args.source.isdigit() else args.source
-    print(f"[INIT] Opening camera source: {src}...")
-    cap = cv2.VideoCapture(src)
+    # 3. Open Video Stream (Picamera2 for native Pi Camera, or OpenCV VideoCapture fallback)
+    use_picam = False
+    picam2 = None
+    cap = None
 
-    if not cap.isOpened():
-        print(f"[FATAL] Could not open video source '{src}'.", file=sys.stderr)
-        serial_iface.close()
-        sys.exit(1)
+    if str(args.source) == "0":
+        try:
+            from picamera2 import Picamera2
+            print("[INIT] Attempting native Picamera2 initialization...")
+            picam2 = Picamera2()
+            config = picam2.create_preview_configuration(
+                main={"size": (args.imgsz, args.imgsz), "format": "BGR888"}
+            )
+            picam2.configure(config)
+            picam2.start()
+            use_picam = True
+            print(f"[INIT] Native Picamera2 initialized successfully at {args.imgsz}x{args.imgsz}.")
+        except Exception as e:
+            print(f"[INIT] Picamera2 not active or unavailable ({e}); falling back to OpenCV VideoCapture...")
+            use_picam = False
 
-    # Attempt to request desired resolution from camera
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.imgsz)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.imgsz)
+    if not use_picam:
+        src = int(args.source) if args.source.isdigit() else args.source
+        print(f"[INIT] Opening camera source via OpenCV: {src}...")
+        cap = cv2.VideoCapture(src)
+
+        if not cap.isOpened():
+            print(f"[FATAL] Could not open video source '{src}'.", file=sys.stderr)
+            serial_iface.close()
+            sys.exit(1)
+
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.imgsz)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.imgsz)
 
     print("[SYSTEM] Starting perception loop. Press Ctrl+C (or 'q' in preview) to stop.")
     frame_idx = 0
 
-    is_file_source = isinstance(src, str) and not src.isdigit()
+    is_file_source = not use_picam and isinstance(src, str) and not src.isdigit()
     consecutive_grab_failures = 0
 
     try:
         while True:
-            ret, frame = cap.read()
-            if not ret or frame is None:
-                if is_file_source:
-                    print("[INFO] Reached end of video file.")
-                    break
-                consecutive_grab_failures += 1
-                if consecutive_grab_failures > 30:
-                    print("[FATAL] Camera disconnected or continuous frame drop. Exiting...", file=sys.stderr)
-                    break
-                print("[WARNING] Failed to grab camera frame. Retrying...", file=sys.stderr)
-                time.sleep(0.05)
-                continue
+            if use_picam:
+                frame = picam2.capture_array()
+                ret = True
+            else:
+                ret, frame = cap.read()
+                if not ret or frame is None:
+                    if is_file_source:
+                        print("[INFO] Reached end of video file.")
+                        break
+                    consecutive_grab_failures += 1
+                    if consecutive_grab_failures > 30:
+                        print("[FATAL] Camera disconnected or continuous frame drop. Exiting...", file=sys.stderr)
+                        break
+                    print("[WARNING] Failed to grab camera frame. Retrying...", file=sys.stderr)
+                    time.sleep(0.05)
+                    continue
 
             consecutive_grab_failures = 0
             frame_idx += 1
@@ -342,7 +366,14 @@ def main():
     except KeyboardInterrupt:
         print("\n[USER] Interrupted by keyboard. Exiting cleanly...")
     finally:
-        cap.release()
+        if use_picam and picam2:
+            try:
+                picam2.stop()
+            except Exception:
+                pass
+        elif cap:
+            cap.release()
+
         if args.show:
             cv2.destroyAllWindows()
         serial_iface.close()
