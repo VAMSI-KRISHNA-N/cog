@@ -1,0 +1,19 @@
+# Python Virtual Environment
+.venv/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Temporary test media
+tests/test_feed.mp4
+tests/bus.jpg
+
+# OS / Editor artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
