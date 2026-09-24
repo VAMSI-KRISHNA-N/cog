@@ -234,13 +234,12 @@ def main():
             frame_idx += 1
             h, w = frame.shape[:2]
 
-            # 4. Run YOLO Inference (optimized for Pi 4B)
+            # 4. Run YOLO Inference (avoid passing imgsz to prevent ARM NEON crash on Pi 4)
             try:
                 import torch
                 with torch.inference_mode():
                     results = model(
                         frame,
-                        imgsz=args.imgsz,
                         conf=args.conf,
                         verbose=False,
                     )
