@@ -227,10 +227,9 @@ def main():
             frame_idx += 1
             h, w = frame.shape[:2]
 
-            # 4. Run YOLO Inference (agnostic of classes)
-            results = model.predict(
-                source=frame,
-                imgsz=args.imgsz,
+            # 4. Run YOLO Inference (direct call to avoid ARM instruction issues on Pi 4)
+            results = model(
+                frame,
                 conf=args.conf,
                 verbose=False,
             )
