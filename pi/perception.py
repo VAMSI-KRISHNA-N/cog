@@ -198,6 +198,13 @@ def main():
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.imgsz)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.imgsz)
 
+    # Optimize PyTorch CPU settings for Raspberry Pi 4B (4 cores)
+    try:
+        import torch
+        torch.set_num_threads(4)
+    except Exception:
+        pass
+
     print("[SYSTEM] Starting perception loop. Press Ctrl+C (or 'q' in preview) to stop.")
     frame_idx = 0
 
@@ -227,12 +234,22 @@ def main():
             frame_idx += 1
             h, w = frame.shape[:2]
 
-            # 4. Run YOLO Inference (direct call to avoid ARM instruction issues on Pi 4)
-            results = model(
-                frame,
-                conf=args.conf,
-                verbose=False,
-            )
+            # 4. Run YOLO Inference (optimized for Pi 4B)
+            try:
+                import torch
+                with torch.inference_mode():
+                    results = model(
+                        frame,
+                        imgsz=args.imgsz,
+                        conf=args.conf,
+                        verbose=False,
+                    )
+            except Exception:
+                results = model(
+                    frame,
+                    conf=args.conf,
+                    verbose=False,
+                )
 
             # 5. Extract Detections
             target = None
