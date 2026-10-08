@@ -203,16 +203,45 @@ def resolve_model_path(requested_path: str) -> tuple[str, bool]:
 
     # Graceful fallback to yolov8n.pt
     if os.path.exists("yolov8n.pt"):
-        print(
-            f"[WARNING] Requested waste model '{requested_path}' not found.\n"
-            f"          Falling back to placeholder 'yolov8n.pt'.\n"
-            f"          Run 'python download_trash_model.py' to get the 10-class waste weights.\n",
-            file=sys.stderr,
-        )
+        print_placeholder_warning(requested_path)
         return "yolov8n.pt", True
 
     # Return requested path even if absent so YOLO loader can raise or auto-fetch
     return requested_path, False
+
+
+def print_placeholder_warning(requested_path: str):
+    """
+    Prints a prominent, unmissable warning when falling back to yolov8n.pt.
+    Explains the COCO proxy classes and provides actionable download instructions.
+    """
+    yellow = "\033[93m"
+    bold = "\033[1m"
+    red = "\033[91m"
+    reset = "\033[0m"
+    box_width = 80
+
+    lines = [
+        f"{red}{bold}╔{'═' * (box_width - 2)}╗{reset}",
+        f"{red}{bold}║{'  CRITICAL WARNING: USING GENERIC PLACEHOLDER MODEL (yolov8n.pt)  ':^{box_width - 2}}║{reset}",
+        f"{red}{bold}╠{'═' * (box_width - 2)}╣{reset}",
+        f"{yellow}║  Requested waste model '{requested_path}' was NOT found!{' ' * (box_width - 32 - len(requested_path))}║{reset}",
+        f"{yellow}║  Falling back to generic 'yolov8n.pt' (trained on 80 COCO classes).           ║{reset}",
+        f"{yellow}║                                                                              ║{reset}",
+        f"{yellow}║  WHY THIS MATTERS:                                                           ║{reset}",
+        f"{yellow}║  Generic COCO weights WILL MISCLASSIFY everyday objects:                     ║{reset}",
+        f"{yellow}║    • Computer mouse  --> Misdetected as 'apple' or 'sports ball'             ║{reset}",
+        f"{yellow}║    • Ceiling fan     --> Misdetected as 'airplane'                           ║{reset}",
+        f"{yellow}║    • Water bottle    --> Misdetected as 'vase' or ignored                    ║{reset}",
+        f"{yellow}║    • Pen / Pencil    --> Ignored (not an 80-class COCO category)             ║{reset}",
+        f"{yellow}║                                                                              ║{reset}",
+        f"{yellow}║  ACTION REQUIRED TO USE THE REAL 10-CLASS WASTE DETECTOR:                    ║{reset}",
+        f"{yellow}║    1. Run: python download_trash_model.py --api-key <YOUR_ROBOFLOW_KEY>      ║{reset}",
+        f"{yellow}║    2. Or download 'yolov8_trash.pt' from Roboflow Universe manually.         ║{reset}",
+        f"{yellow}║    3. See LAB_EXECUTION_GUIDE.md Stage 3 for complete instructions.          ║{reset}",
+        f"{red}{bold}╚{'═' * (box_width - 2)}╝{reset}",
+    ]
+    print("\n" + "\n".join(lines) + "\n", file=sys.stderr)
 
 
 def main():
@@ -367,6 +396,14 @@ def main():
             h, w = frame.shape[:2]
 
             # 4. Run YOLO Inference (avoid passing imgsz directly to prevent ARM NEON crash on Pi 4)
+            if frame_idx == 1 and is_placeholder:
+                print(
+                    "\033[93m\033[1m[INFERENCE NOTICE] Running with 'yolov8n.pt' placeholder — "
+                    "detecting COCO proxy objects (bottle, cup, cell phone, mouse, apple, etc.) for testing.\n"
+                    "                   To use the real 10-class waste model, run: python download_trash_model.py\033[0m\n",
+                    file=sys.stderr,
+                )
+
             try:
                 import torch
                 with torch.inference_mode():
@@ -542,6 +579,19 @@ def main():
                         status_color,
                         1,
                     )
+
+                    # Bottom Placeholder Warning Banner (if running with yolov8n.pt)
+                    if is_placeholder:
+                        cv2.rectangle(display_frame, (0, h - 22), (w, h), (0, 0, 160), -1)
+                        cv2.putText(
+                            display_frame,
+                            "WARNING: PLACEHOLDER MODEL (run download_trash_model.py)",
+                            (6, h - 7),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.38,
+                            (255, 255, 255),
+                            1,
+                        )
 
                     cv2.imshow("Waste Robot — Phase 1 Tracker", display_frame)
                     key = cv2.waitKey(1) & 0xFF

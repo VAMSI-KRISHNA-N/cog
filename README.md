@@ -7,7 +7,7 @@ Full implementation of Phase 1 stationary perception and continuous pointing sys
 ## 1. System Architecture & Core Flow
 
 ```
-Camera (Pi Cam V2)
+Camera (Pi Camera V2)
       │
       ▼
 YOLOv8 Waste Detector (10 Classes)
@@ -35,7 +35,7 @@ Is Target Centered in Deadband?
       │
       └── NO (Target Drifted / Lost)
             └──► Reset stable_counter to 0; unconfirm lock
-                 If no target: Servo holds last position
+                 If no target: Servo holds last commanded angle
 ```
 
 ---
@@ -73,16 +73,20 @@ The script will compute the average focal length and verify agreement within 15�
 
 ## 4. Hardware Pinout & Wiring
 
-| Component | Pin / Wire | Arduino Uno Connection | Notes |
-| :--- | :--- | :--- | :--- |
-| **SG90 Servo** | Orange / Yellow (Signal) | **Pin 11 (PWM)** | Servo control pulse |
-| | Red (VCC) | **5V** | Power |
-| | Brown / Black (GND) | **GND** | Common ground with Arduino |
-| **HC-SR04** | VCC | **5V** | Power |
-| | Trig | **Pin 9** | 10µs trigger pulse |
-| | Echo | **Pin 10** | Round-trip echo duration |
-| | GND | **GND** | Common ground |
-| **Pi / Laptop** | USB-A to USB-B Cable | **Arduino USB Port** | Supplies power & serial communication (115200 baud) |
+> [!IMPORTANT]
+> **UNCONFIRMED DEFAULT PINS**: The pins below are placeholder defaults.
+> **DO NOT assume they are correct for your kit's shield.** You **MUST** run `arduino/pin_probe/pin_probe.ino` first to confirm physical connections before flashing `arduino/pointer_control/pointer_control.ino`.
+
+| Component | Pin / Wire | Arduino Uno Connection | Status | Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| **SG90 Servo** | Orange / Yellow (Signal) | **Pin 11 (PWM)** | *Unconfirmed default* | Servo control pulse |
+| | Red (VCC) | **5V** | Confirmed | Power |
+| | Brown / Black (GND) | **GND** | Confirmed | Common ground with Arduino |
+| **HC-SR04** | VCC | **5V** | Confirmed | Power |
+| | Trig | **Pin 9** | *Unconfirmed default* | 10µs trigger pulse |
+| | Echo | **Pin 10** | *Unconfirmed default* | Round-trip echo duration |
+| | GND | **GND** | Confirmed | Common ground |
+| **Pi / Laptop** | USB-A to USB-B Cable | **Arduino USB Port** | Confirmed | Power & serial communication (115200 baud) |
 
 ---
 
@@ -115,12 +119,32 @@ git pull
 # Hardware mode with Pi Camera V2
 python3 pi/perception.py --port /dev/ttyACM0 --baud 115200 --show
 
+# Headless mode (without display)
+python3 pi/perception.py --port /dev/ttyACM0 --baud 115200 --no-show
+
 # Mock mode (webcam / test bench without Arduino)
 python3 pi/perception.py --mock --show
 
-# Calibrate servo direction if mounting is inverted:
+# Inverted servo mounting calibration:
 python3 pi/perception.py --port /dev/ttyACM0 --servo-direction -1 --show
 ```
+
+### Full CLI Options Reference:
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `--model` | `yolov8_trash.pt` | Model weights checkpoint |
+| `--source` | `0` | Camera index or video path |
+| `--imgsz` | `320` | Capture and inference resolution |
+| `--conf` | `0.25` | Confidence cutoff |
+| `--port` | `/dev/ttyACM0` | Arduino serial port |
+| `--baud` | `115200` | Baud rate |
+| `--mock` | `False` | Run without physical serial hardware |
+| `--mock-dist` | `45.0` | Simulated ultrasonic distance |
+| `--servo-direction` | `1` | Servo polarity: `+1` or `-1` |
+| `--deadband` | `3.0` | Angular deadband for center categorization (±deg) |
+| `--stable-frames` | `5` | Frames required to trigger ultrasonic query |
+| `--focal-length` | `320.0` | Calibrated focal length in pixels |
+| `--calibrate-focal` | None | Run 2-point focal calibration math |
 
 ---
 
@@ -128,7 +152,14 @@ python3 pi/perception.py --port /dev/ttyACM0 --servo-direction -1 --show
 
 To download the pre-trained Roboflow Universe `yolov8-trash-detections` weights:
 ```bash
-python download_trash_model.py --api-key YOUR_ROBOFLOW_API_KEY
+# Automatic download via API:
+python3 download_trash_model.py --api-key YOUR_ROBOFLOW_API_KEY
+
+# Check if model is valid:
+python3 download_trash_model.py --check
 ```
-*(If no API key is provided, the script explains how to download the PyTorch `.pt` file directly from Roboflow Universe and save as `yolov8_trash.pt`).*
-If `yolov8_trash.pt` is not present, `perception.py` falls back gracefully to `yolov8n.pt` for offline testing.
+
+*(If no API key is provided, running `python3 download_trash_model.py` provides manual download instructions from Roboflow Universe).*
+
+> [!WARNING]
+> **Fallback Warning**: If `yolov8_trash.pt` is not present, `perception.py` falls back to `yolov8n.pt` (generic COCO weights). It will display a loud warning because COCO cannot detect trash items properly (e.g. mouse as apple, fan as airplane, bottle as vase).

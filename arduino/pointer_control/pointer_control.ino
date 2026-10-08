@@ -1,10 +1,23 @@
+// ============================================================================
+// HARDWARE PIN CONFIGURATION
+//
+// NOTE: CONFIRMED VIA pin_probe.ino ON <date> — DO NOT ASSUME DEFAULTS ARE CORRECT.
+// The pins below are UNCONFIRMED DEFAULTS based on initial bench wiring assumptions.
+// Run arduino/pin_probe/pin_probe.ino to verify physical pins on your specific
+// robot shield before relying on these values!
+// ============================================================================
+#define SERVO_PIN 11  // [UNCONFIRMED DEFAULT] SG90 Servo signal (PWM pin)
+#define TRIG_PIN  9   // [UNCONFIRMED DEFAULT] HC-SR04 Ultrasonic Trigger
+#define ECHO_PIN  10  // [UNCONFIRMED DEFAULT] HC-SR04 Ultrasonic Echo
+// ============================================================================
+
 /*
  * pointer_control.ino - Phase 1 Stationary Waste-Detection Pointing System
  *
  * Hardware:
  *   - Arduino Uno
- *   - Tower Pro SG90 Micro Servo (PWM Pin 11)
- *   - HC-SR04 Ultrasonic Distance Sensor (Trig Pin 9, Echo Pin 10)
+ *   - Tower Pro SG90 Micro Servo (PWM Pin defined above)
+ *   - HC-SR04 Ultrasonic Distance Sensor (Trig/Echo pins defined above)
  *
  * Protocol:
  *   - Startup: Arduino prints "READY\n" once initialized.
@@ -17,11 +30,6 @@
  */
 
 #include <Servo.h>
-
-// Pin definitions
-#define TRIG_PIN 9
-#define ECHO_PIN 10
-#define SERVO_PIN 11
 
 // Ultrasonic measurement bounds (cm)
 #define MIN_DISTANCE_CM 2.0
