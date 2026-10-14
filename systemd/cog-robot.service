@@ -1,0 +1,49 @@
+# =============================================================================
+# cog-robot.service — Systemd unit for the COG Autonomous Waste Robot
+#
+# Install:
+#   sudo cp systemd/cog-robot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable cog-robot.service
+#
+# Disable for development:
+#   sudo systemctl disable cog-robot.service
+#   sudo systemctl stop cog-robot.service
+#
+# Read logs:
+#   journalctl -u cog-robot.service -f
+#   tail -f /home/pi/cog/logs/robot.log
+# =============================================================================
+
+[Unit]
+Description=COG Autonomous Waste Robot
+After=multi-user.target
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/cog
+
+# Run the robot script using the project's virtualenv Python
+ExecStart=/home/pi/cog/.venv/bin/python3 /home/pi/cog/pi/robot.py
+
+# Log to file and journal
+StandardOutput=append:/home/pi/cog/logs/robot.log
+StandardError=append:/home/pi/cog/logs/robot.log
+
+# Restart on crash, but NOT after a clean exit (exit code 0 = DONE)
+Restart=on-failure
+RestartSec=10
+SuccessExitStatus=0
+
+# Allow the script time to do its shutdown blink pattern
+TimeoutStopSec=30
+
+# Ensure GPIO and serial access
+SupplementaryGroups=dialout gpio video
+
+[Install]
+WantedBy=multi-user.target

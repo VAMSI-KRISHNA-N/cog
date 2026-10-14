@@ -1,0 +1,11 @@
+# /etc/sudoers.d/cog-shutdown
+#
+# Allow the 'pi' user to run 'shutdown -h now' without a password.
+# This is required for the robot script to power off the Pi after DONE.
+#
+# Install:
+#   sudo cp systemd/cog-shutdown.sudoers /etc/sudoers.d/cog-shutdown
+#   sudo chmod 0440 /etc/sudoers.d/cog-shutdown
+#   sudo visudo -c   # Validate syntax
+#
+pi ALL=(ALL) NOPASSWD: /sbin/shutdown -h now

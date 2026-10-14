@@ -1,10 +1,13 @@
 """
-geometry.py - Geometric, angular, and distance transformations for the waste pointing system.
+geometry.py - Geometric, angular, and distance transformations for the waste robot.
+
+Provides bearing calculation, direction classification, distance estimation,
+focal length calibration, and bearing-to-turn-duration conversion for the
+autonomous 4WD robot.
 """
 
 # Camera & Mechanical Defaults
 HORIZONTAL_FOV = 62.2       # Pi Camera V2 horizontal field of view in degrees
-SERVO_DIRECTION = 1         # Multiplier: +1 or -1 for physical servo orientation
 DEADBAND_DEG = 3.0          # Angular deadband for "center" stability classification in degrees
 
 # Camera Focal Length Calibration (Pinhole model for 320x320 frame)
@@ -29,7 +32,7 @@ def calculate_bearing_and_angle(
     x_center: float,
     img_width: float,
     fov: float = HORIZONTAL_FOV,
-    servo_direction: int = SERVO_DIRECTION,
+    servo_direction: int = 1,
 ) -> tuple[float, int]:
     """
     Computes bearing angle relative to optical center and corresponding servo angle.
@@ -37,7 +40,7 @@ def calculate_bearing_and_angle(
     Formula:
         normalized_offset = (x_center / img_width) - 0.5
         bearing = normalized_offset * fov
-        servo_angle = 90 + (SERVO_DIRECTION * bearing), clamped to [0, 180]
+        servo_angle = 90 + (servo_direction * bearing), clamped to [0, 180]
 
     Args:
         x_center: Horizontal pixel coordinate of target bounding box center.
@@ -123,3 +126,20 @@ def calibrate_focal_length(
     diff_pct = abs(f1 - f2) / avg * 100.0 if avg > 0 else 0.0
 
     return f1, f2, avg, diff_pct
+
+
+def bearing_to_turn_ms(bearing_deg: float, ms_per_deg: float) -> int:
+    """
+    Convert a bearing offset (degrees) to a motor turn duration (milliseconds).
+
+    Uses the absolute value of bearing so this works for both left and right turns.
+    The caller decides the turn direction based on the sign of bearing.
+
+    Args:
+        bearing_deg: Bearing offset in degrees (can be positive or negative).
+        ms_per_deg: Calibration constant — milliseconds of pivot per degree of rotation.
+
+    Returns:
+        Turn duration in milliseconds (always >= 0).
+    """
+    return max(0, int(round(abs(bearing_deg) * ms_per_deg)))

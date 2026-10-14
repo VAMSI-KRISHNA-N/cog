@@ -1,165 +1,259 @@
-# Waste Robot — Phase 1 (Stationary Continuous Detect, Track & Point)
+# COG — Autonomous Waste-Detection Robot
 
-Full implementation of Phase 1 stationary perception and continuous pointing system for the waste collection robot.
+Fully autonomous 4WD robot that scans for floor objects, drives to each one, classifies it as **WASTE** or **NOT WASTE**, lights the corresponding LED (green / red), and shuts down safely — all with **zero human input at runtime**.
 
 ---
 
-## 1. System Architecture & Core Flow
+## 1. System Architecture
 
 ```
-Camera (Pi Camera V2)
-      │
-      ▼
-YOLOv8 Waste Detector (10 Classes)
-      │
-      ▼
-Pick Highest-Confidence Target
-      │
-      ├────────────────────────────────────────────────────────┐
-      ▼                                                        ▼
-Calculate Bearing & Direction                          BBox Height Distance Estimate
-(Deadband: ±3.0° -> left / right / center)             dist = (real_height * f_px) / h_px
-      │                                                        │
-      ▼                                                        ▼
-Servo Angle Mapping (90° + DIR * bearing)            Log live distance estimate
-      │
-      ▼
-Send P,<angle> EVERY Qualifying Frame (Continuous Tracking)
-      │
-      ▼
-Is Target Centered in Deadband?
-      ├── YES ──► stable_counter += 1
-      │             └──► stable_counter >= 5 frames?
-      │                    └──► Trigger Ultrasonic Q -> R,<cm>
-      │                         └──► Confirm: "CONFIRMED: <class> @ <dist>cm"
-      │
-      └── NO (Target Drifted / Lost)
-            └──► Reset stable_counter to 0; unconfirm lock
-                 If no target: Servo holds last commanded angle
+                         ┌─────────────────────┐
+                         │   Raspberry Pi 4B    │
+                         │  (own power bank)    │
+                         ├──────────┬───────────┤
+                         │ Pi Camera V2         │  ← YOLOv8 Inference
+                         │ GPIO 17 → RED LED    │
+                         │ GPIO 27 → GREEN LED  │
+                         └─────┬────────────────┘
+                               │ USB Serial (115200 baud)
+                               │ (also powers the Arduino)
+                         ┌─────▼────────────────┐
+                         │    Arduino Uno        │
+                         ├──────────────────────┤
+                         │ L298N Motor Driver    │  ← 4WD Chassis
+                         │ HC-SR04 Ultrasonic    │
+                         └──────────────────────┘
+```
+
+### State Machine Flow
+
+```
+ SCAN ──(target found)──► ALIGN ──(centered)──► APPROACH ──(arrived)──► VERDICT
+  ▲                         │                       │                       │
+  │                    (lost 3x)               (lost 3x)              (classify)
+  │                         │                       │                       │
+  └─────────────────────────┘                       │                       ▼
+  ▲                                                 │                   INDICATE
+  │                                                 │                       │
+  │                                                 └───────────────────────┘
+  │                                                                    (LED hold)
+  │                                                                         │
+  └─────────────── LEAVE ◄─────────────────────────────────────────────────┘
+                     │
+              (sweep exhausted)
+                     │
+                     ▼
+                   DONE ──► blink ──► shutdown
 ```
 
 ---
 
-## 2. 10 Waste Categories (Roboflow Universe yolov8-trash-detections)
-
-The system detects and retains the actual class names for all 10 waste categories:
-- `plastic bottle` (~20 cm real height)
-- `can` (~12 cm real height)
-- `glass bottle` (~25 cm real height)
-- `drink carton` (~15 cm real height)
-- `battery` (~5 cm real height)
-- `cardboard` (irregular height $\rightarrow$ distance returned as `unknown`)
-- `paper` (irregular height $\rightarrow$ distance returned as `unknown`)
-- `plastic bag` (irregular height $\rightarrow$ distance returned as `unknown`)
-- `plastic` (irregular height $\rightarrow$ distance returned as `unknown`)
-- `pop tab` (irregular height $\rightarrow$ distance returned as `unknown`)
-
----
-
-## 3. Distance Estimation & Focal Length Calibration
-
-The camera estimates distance based on pinhole optics:
-$$\text{focal\_length\_px} = \frac{\text{pixel\_height} \times \text{distance\_cm}}{\text{real\_height\_cm}}$$
-$$\text{distance\_estimate} = \frac{\text{real\_height\_cm} \times \text{focal\_length\_px}}{\text{current\_pixel\_height}}$$
-
-### Calibrating in the Lab:
-Place a reference object (e.g. a 20cm plastic bottle) at 30cm and 100cm, record pixel heights from the bbox, and run the calibration tool:
-```bash
-python3 pi/perception.py --calibrate-focal 20.0 30.0 <h1_px> 100.0 <h2_px>
-```
-The script will compute the average focal length and verify agreement within 15–20%.
-
----
-
-## 4. Hardware Pinout & Wiring
+## 2. Verified Wiring
 
 > [!IMPORTANT]
-> **UNCONFIRMED DEFAULT PINS**: The pins below are placeholder defaults.
-> **DO NOT assume they are correct for your kit's shield.** You **MUST** run `arduino/pin_probe/pin_probe.ino` first to confirm physical connections before flashing `arduino/pointer_control/pointer_control.ino`.
+> All pins below are **verified from working lab sketches**. No pin-probe step is needed.
 
-| Component | Pin / Wire | Arduino Uno Connection | Status | Notes |
-| :--- | :--- | :--- | :--- | :--- |
-| **SG90 Servo** | Orange / Yellow (Signal) | **Pin 11 (PWM)** | *Unconfirmed default* | Servo control pulse |
-| | Red (VCC) | **5V** | Confirmed | Power |
-| | Brown / Black (GND) | **GND** | Confirmed | Common ground with Arduino |
-| **HC-SR04** | VCC | **5V** | Confirmed | Power |
-| | Trig | **Pin 9** | *Unconfirmed default* | 10µs trigger pulse |
-| | Echo | **Pin 10** | *Unconfirmed default* | Round-trip echo duration |
-| | GND | **GND** | Confirmed | Common ground |
-| **Pi / Laptop** | USB-A to USB-B Cable | **Arduino USB Port** | Confirmed | Power & serial communication (115200 baud) |
+### L298N Motor Driver → Arduino Uno
+
+| L298N Pin | Arduino Pin | Purpose |
+|:--|:--|:--|
+| ENA | **5** (PWM) | Left motors speed |
+| ENB | **6** (PWM) | Right motors speed |
+| IN1 | **7** | Left motor direction A |
+| IN2 | **8** | Left motor direction B |
+| IN3 | **9** | Right motor direction A |
+| IN4 | **11** | Right motor direction B |
+
+**Direction mapping** (lab sketch names are swapped):
+
+| Physical Motion | IN1 | IN2 | IN3 | IN4 |
+|:--|:--|:--|:--|:--|
+| **Forward** (toward camera) | LOW | HIGH | HIGH | LOW |
+| **Backward** (away from camera) | HIGH | LOW | LOW | HIGH |
+| **Pivot Left** | LOW | HIGH | LOW | HIGH |
+| **Pivot Right** | HIGH | LOW | HIGH | LOW |
+
+### HC-SR04 Ultrasonic → Arduino Uno
+
+| HC-SR04 | Arduino Pin |
+|:--|:--|
+| TRIG | **12** |
+| ECHO | **13** |
+| VCC | 5V |
+| GND | GND |
+
+### LEDs → Raspberry Pi GPIO (BCM)
+
+| LED | BCM Pin | Physical Pin | Wiring |
+|:--|:--|:--|:--|
+| **Red** | **17** | 11 | GPIO → Resistor → LED → GND |
+| **Green** | **27** | 13 | GPIO → Resistor → LED → GND |
+
+### Reserved Pins (IR sensors — DO NOT USE)
+
+Pins **2**, **4**, **10** on the Arduino are reserved for IR line sensors. Do not use them.
+
+### Power
+
+- **Pi**: runs from its own USB power bank (5V / 3A).
+- **Arduino**: powered over USB from the Pi. Grounds are shared through the USB cable.
 
 ---
 
-## 5. Serial Communication Protocol
+## 3. Serial Protocol (115200 baud, newline-terminated)
 
-- **Baud Rate**: `115200` | **Line Ending**: `\n`
-
-| Direction | Command / Message | Trigger | Description |
-| :--- | :--- | :--- | :--- |
-| Arduino $\rightarrow$ Pi | `READY` | Boot | Startup handshake when Uno finishes setup. |
-| Pi $\rightarrow$ Arduino | `P,<angle>` | **Every qualifying frame** | Continuous tracking servo update (`[0, 180]`). |
-| Pi $\rightarrow$ Arduino | `Q` | **Stability lock ($\ge 5$ stable frames)** | Rare, triggered ultrasonic query. |
-| Arduino $\rightarrow$ Pi | `R,<cm>` | Response to `Q` | Measured distance in cm (`R,-1` on timeout). |
+| Direction | Command | Description | Reply |
+|:--|:--|:--|:--|
+| Pi → Arduino | `F,<ms>` | Forward for ms (clamp ≤ 1500) | `A` |
+| Pi → Arduino | `B,<ms>` | Backward for ms | `A` |
+| Pi → Arduino | `TL,<ms>` | Pivot left for ms | `A` |
+| Pi → Arduino | `TR,<ms>` | Pivot right for ms | `A` |
+| Pi → Arduino | `S` | Stop immediately | (none) |
+| Pi → Arduino | `V,<0-255>` | Set PWM speed | (none) |
+| Pi → Arduino | `Q` | Ultrasonic distance query | `R,<cm>` or `R,-1` |
+| Arduino → Pi | `READY` | Boot handshake | — |
 
 ---
 
-## 6. How to Run
+## 4. Run Modes
 
-### Automatic Launcher:
+| Mode | Flag | Description |
+|:--|:--|:--|
+| **Headless** | *(default)* | No display, no keyboard. What the systemd service runs. |
+| **Preview** | `--preview` | Shows annotated OpenCV window. Press `q` to stop. Dev only. |
+| **Teleop** | `--teleop` | WASD manual driving for calibration. `+`/`-` adjust duration. |
+| **Mock** | `--mock` | Simulated serial/LEDs. Full state machine on a laptop with webcam. |
+
+### Quick Start
+
 ```bash
-# Pull latest code
-git pull
+cd ~/cog
+source .venv/bin/activate
 
-# Launch tracker (auto-detects Arduino or runs Mock mode)
-./run.sh
+# Mock mode on a laptop (no hardware needed):
+python3 pi/robot.py --mock --preview
+
+# Real hardware with preview:
+python3 pi/robot.py --preview
+
+# Headless (production):
+python3 pi/robot.py
 ```
 
-### Manual CLI Run:
-```bash
-# Hardware mode with Pi Camera V2
-python3 pi/perception.py --port /dev/ttyACM0 --baud 115200 --show
+---
 
-# Headless mode (without display)
-python3 pi/perception.py --port /dev/ttyACM0 --baud 115200 --no-show
+## 5. CLI Flags Reference
 
-# Mock mode (webcam / test bench without Arduino)
-python3 pi/perception.py --mock --show
-
-# Inverted servo mounting calibration:
-python3 pi/perception.py --port /dev/ttyACM0 --servo-direction -1 --show
-```
-
-### Full CLI Options Reference:
-| Option | Default | Description |
-| :--- | :--- | :--- |
-| `--model` | `yolov8_trash.pt` | Model weights checkpoint |
+| Flag | Default | Description |
+|:--|:--|:--|
+| `--model` | `yolov8_trash.pt` | YOLO model path |
 | `--source` | `0` | Camera index or video path |
-| `--imgsz` | `320` | Capture and inference resolution |
-| `--conf` | `0.25` | Confidence cutoff |
-| `--port` | `/dev/ttyACM0` | Arduino serial port |
-| `--baud` | `115200` | Baud rate |
-| `--mock` | `False` | Run without physical serial hardware |
-| `--mock-dist` | `45.0` | Simulated ultrasonic distance |
-| `--servo-direction` | `1` | Servo polarity: `+1` or `-1` |
-| `--deadband` | `3.0` | Angular deadband for center categorization (±deg) |
-| `--stable-frames` | `5` | Frames required to trigger ultrasonic query |
-| `--focal-length` | `320.0` | Calibrated focal length in pixels |
-| `--calibrate-focal` | None | Run 2-point focal calibration math |
+| `--imgsz` | `320` | Capture resolution |
+| `--conf` | `0.25` | Detection confidence threshold |
+| `--port` | *(auto-detect)* | Arduino serial port |
+| `--baud` | `115200` | Serial baud rate |
+| `--mock` | `False` | Simulated hardware mode |
+| `--preview` | `False` | Show annotated window |
+| `--teleop` | `False` | Manual WASD driving mode |
+| `--red-led` | `17` | BCM pin for red LED |
+| `--green-led` | `27` | BCM pin for green LED |
+| `--turn-ms-per-deg` | `8.0` | ms per degree of pivot |
+| `--drive-ms-per-cm` | `15.0` | ms per cm of forward drive |
+| `--forward-burst-ms` | `300` | ms per forward burst |
+| `--scan-step-deg` | `20.0` | degrees per scan step |
+| `--arrive-cm` | `18.0` | ultrasonic arrival threshold |
+| `--arrive-y-frac` | `0.92` | bbox bottom arrival threshold |
+| `--align-deadband-deg` | `6.0` | alignment tolerance |
+| `--camera-settle-s` | `0.3` | frame settle delay |
+| `--waste-conf` | `0.50` | mean confidence threshold for WASTE |
+| `--sweep-limit-deg` | `360` | initial sweep limit |
+| `--reverse-ms` | `500` | reverse duration after indicate |
+| `--turn-away-ms` | `960` | turn-away after indicate (~120°) |
+| `--led-hold-s` | `3.0` | LED on duration |
+| `--vote-frames` | `5` | rolling confidence window size |
+| `--start-delay-s` | `10.0` | delay after ready blink |
+| `--max-run-s` | `300` | global time limit |
+| `--shutdown-when-done` | `True` | shut down Pi after DONE |
+| `--no-shutdown` | — | do NOT shut down after DONE |
+| `--fov` | `62.2` | camera horizontal FOV |
 
 ---
 
-## 7. Model Download & Custom Weights
+## 6. Auto-Start on Boot (systemd)
 
-To download the pre-trained Roboflow Universe `yolov8-trash-detections` weights:
+### Install
+
 ```bash
-# Automatic download via API:
+# Create log directory
+mkdir -p ~/cog/logs
+
+# Copy service file
+sudo cp systemd/cog-robot.service /etc/systemd/system/
+
+# Install sudoers for passwordless shutdown
+sudo cp systemd/cog-shutdown.sudoers /etc/sudoers.d/cog-shutdown
+sudo chmod 0440 /etc/sudoers.d/cog-shutdown
+sudo visudo -c  # Validate
+
+# Enable and start
+sudo systemctl daemon-reload
+sudo systemctl enable cog-robot.service
+```
+
+### Disable for Development
+
+```bash
+sudo systemctl disable cog-robot.service
+sudo systemctl stop cog-robot.service
+```
+
+### Read Logs
+
+```bash
+# Journal
+journalctl -u cog-robot.service -f
+
+# Log file
+tail -f ~/cog/logs/robot.log
+```
+
+---
+
+## 7. Model Download
+
+```bash
+# Automatic download:
 python3 download_trash_model.py --api-key YOUR_ROBOFLOW_API_KEY
 
 # Check if model is valid:
 python3 download_trash_model.py --check
 ```
 
-*(If no API key is provided, running `python3 download_trash_model.py` provides manual download instructions from Roboflow Universe).*
-
 > [!WARNING]
-> **Fallback Warning**: If `yolov8_trash.pt` is not present, `perception.py` falls back to `yolov8n.pt` (generic COCO weights). It will display a loud warning because COCO cannot detect trash items properly (e.g. mouse as apple, fan as airplane, bottle as vase).
+> If `yolov8_trash.pt` is missing, the robot falls back to `yolov8n.pt` (generic COCO weights) with a loud warning. COCO weights cannot detect waste categories properly.
+
+---
+
+## 8. Tests
+
+```bash
+cd ~/cog
+source .venv/bin/activate
+
+# Unit tests (geometry, serial, LEDs):
+python3 tests/test_components.py
+
+# Integration tests (state machine):
+python3 tests/test_integration.py
+```
+
+---
+
+## 9. Safe Shutdown
+
+After the robot reaches DONE, it:
+1. Blinks both LEDs 3 times.
+2. Alternates green/red for ~10 seconds ("safe to pick up").
+3. Runs `sudo shutdown -h now`.
+
+**Wait for the Pi's green ACT LED to stop blinking before cutting power.**

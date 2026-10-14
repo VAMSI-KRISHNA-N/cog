@@ -1,315 +1,266 @@
-# Master Lab Execution Guide: Phase 1 Bench Test
+# Lab Execution Guide: Autonomous Waste Robot
 
-This guide covers the complete, step-by-step procedure to set up, flash, wire, run, debug, and calibrate the stationary waste-detection pointing system from a cold start to Phase 2 readiness.
-
----
-
-## Stage 1: Physical Setup & Wiring (Bench Mode)
-
-### 1.1 Raspberry Pi 4B Connections (Power OFF)
-1. **MicroSD Card**: Insert the flashed 64GB card into the slot under the Pi.
-2. **Pi Camera V2**:
-   - Locate the **CAMERA** CSI port (between HDMI and audio jack, NOT the display DSI port).
-   - Pull the plastic collar tabs gently upward.
-   - Insert ribbon cable: **Blue tape faces the USB ports**, silver contacts face the micro-HDMI ports.
-   - Push collar tabs down firmly to lock the ribbon in place.
-3. **Arduino Uno Connection**: Connect a USB-A to USB-B cable from any USB port on the Pi to the Arduino Uno.
-4. **Peripherals**: Connect micro-HDMI to your monitor, keyboard & mouse to USB.
-5. **Power**: Plug the official USB-C power supply (5V / 3A) into the Pi.
+Step-by-step procedure to set up, flash, wire, calibrate, and deploy the autonomous waste-detection robot from a cold start.
 
 ---
 
-### 1.2 Arduino & Sensor Wiring Pinout
+## Stage 1: Physical Setup & Wiring (Power OFF)
+
+### 1.1 Raspberry Pi 4B
+
+1. **MicroSD Card**: Insert the flashed 64GB card (Raspberry Pi OS 64-bit).
+2. **Pi Camera V2**: Insert into the **CAMERA** CSI port (between HDMI and audio jack). Blue tape faces USB ports.
+3. **LEDs**:
+   - **Red LED**: Connect BCM GPIO **17** (physical pin **11**) → resistor (220Ω–330Ω) → LED anode → LED cathode → GND.
+   - **Green LED**: Connect BCM GPIO **27** (physical pin **13**) → resistor (220Ω–330Ω) → LED anode → LED cathode → GND.
+4. **Arduino Uno**: Connect USB-A (Pi) to USB-B (Arduino). This provides both serial communication and power to the Arduino.
+5. **Power**: Connect the Pi to its own USB power bank (5V / 3A minimum). The Arduino is powered through the USB cable from the Pi.
 
 > [!IMPORTANT]
-> **UNCONFIRMED DEFAULT PINS**: The pins below (Servo=11, Trig=9, Echo=10) are placeholder defaults based on common bench wiring.
-> **DO NOT assume they are correct for your kit's shield.** You **MUST** run **Stage 5 (`pin_probe.ino`)** first to confirm physical connections before flashing production firmware.
+> The Pi and Arduino share a common ground through the USB cable. No additional ground wire is needed between them.
 
-| Component | Wire / Pin | Arduino Uno Pin (Default) | Status | Purpose |
-| :--- | :--- | :--- | :--- | :--- |
-| **SG90 Servo** | Orange / Yellow | **Pin 11** *(PWM)* | *Unconfirmed default* | Servo PWM control signal |
-| | Red | **5V** | Confirmed | Power |
-| | Brown / Black | **GND** | Confirmed | Common ground |
-| **HC-SR04** | VCC | **5V** | Confirmed | Power |
-| | Trig | **Pin 9** | *Unconfirmed default* | 10µs ultrasonic trigger pulse |
-| | Echo | **Pin 10** | *Unconfirmed default* | Echo pulse round-trip timing |
-| | GND | **GND** | Confirmed | Common ground |
+### 1.2 Arduino Uno → L298N Motor Driver
 
-> [!TIP]
-> **Power Stability**: If the servo jitters or the Arduino resets upon moving, the SG90 is pulling too much current from the Arduino's 5V rail. Connect the servo's red wire to an external 5V power source (sharing a common GND with the Arduino) or place a $100\mu\text{F}\text{--}470\mu\text{F}$ capacitor across 5V and GND.
+| L298N Pin | Arduino Pin | Notes |
+|:--|:--|:--|
+| ENA | **5** (PWM) | Left motors speed |
+| ENB | **6** (PWM) | Right motors speed |
+| IN1 | **7** | Left motor direction A |
+| IN2 | **8** | Left motor direction B |
+| IN3 | **9** | Right motor direction A |
+| IN4 | **11** | Right motor direction B |
+| 12V / VCC | External battery pack | Motor power (6V–12V) |
+| GND | Arduino GND + Battery GND | Common ground |
+
+### 1.3 Arduino Uno → HC-SR04 Ultrasonic
+
+| HC-SR04 | Arduino Pin |
+|:--|:--|
+| VCC | 5V |
+| TRIG | **12** |
+| ECHO | **13** |
+| GND | GND |
+
+### 1.4 Reserved Pins
+
+Pins **2**, **4**, **10** are reserved for IR line sensors. **Do not use these pins.**
 
 ---
 
 ## Stage 2: First Boot & OS Verification
 
-1. Power on the Pi and log in to the desktop.
-2. Open a terminal (`Ctrl + Alt + T`).
-3. **Verify 64-bit Architecture**:
+1. Power on the Pi and open a terminal.
+2. **Verify 64-bit OS**:
    ```bash
-   uname -m
+   uname -m   # Must output: aarch64
    ```
-   - **Must output**: `aarch64`.
-   - *(If it says `armv7l`, stop immediately: re-flash the card with Raspberry Pi OS 64-bit)*.
-4. **Confirm Internet Access**:
+3. **Internet access**:
    ```bash
    ping -c 3 8.8.8.8
    ```
-5. **Grant Serial Port Permissions to User**:
+4. **Serial port permissions**:
    ```bash
    sudo usermod -a -G dialout $USER
    ```
-   *(This ensures Python can access `/dev/ttyACM0` without `sudo`)*.
+   Log out and back in for this to take effect.
 
 ---
 
-## Stage 3: Project Setup on the Pi
+## Stage 3: Project Setup
 
-### 3.1 Transfer Code to Pi
-- **Via Git**: Clone your repository to `~/cog`:
-  ```bash
-  git clone https://github.com/VAMSI-KRISHNA-N/cog.git ~/cog
-  cd ~/cog
-  ```
-- **Or via USB Drive**: Copy the `cog/` folder to `/home/pi/cog`.
+### 3.1 Clone Repository
 
-### 3.2 Create Virtual Environment & Install Dependencies
 ```bash
+git clone https://github.com/VAMSI-KRISHNA-N/cog.git ~/cog
 cd ~/cog
+```
 
-# 1. Create isolated environment
+### 3.2 Virtual Environment & Dependencies
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
-
-# 2. Upgrade pip and install requirements
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
-*(Installation on the Pi 4B typically takes 4–8 minutes)*.
 
-### 3.3 Smoke Test Dependencies
+### 3.3 Smoke Test
+
 ```bash
 python3 -c "import cv2, serial, ultralytics; print('Dependencies OK!')"
 ```
-If this prints `Dependencies OK!`, proceed. If it fails, resolve the missing library before continuing.
 
-### 3.4 Download & Verify the 10-Class Waste Model
+### 3.4 Download Waste Model
 
-The perception pipeline expects `yolov8_trash.pt` (trained on Roboflow Universe `yolov8-trash-detections`).
+```bash
+# Automated:
+python3 download_trash_model.py --api-key YOUR_ROBOFLOW_KEY
 
-**Option A: Automated Download (with free API Key)**:
-1. Create a free account at [https://app.roboflow.com/](https://app.roboflow.com/).
-2. Copy your Private API Key from **Settings -> Roboflow API**.
-3. Run:
-   ```bash
-   python3 download_trash_model.py --api-key YOUR_KEY
-   ```
-
-**Option B: Manual Download (No CLI Key Needed)**:
-1. Visit [Roboflow Universe yolov8-trash-detections](https://universe.roboflow.com/waste-detection-spldq/yolov8-trash-detections).
-2. Download weights as **YOLOv8 PyTorch format** (`best.pt`).
-3. Copy/rename the file to `~/cog/yolov8_trash.pt`.
-4. Verify the model file:
-   ```bash
-   python3 download_trash_model.py --check
-   ```
+# Verify:
+python3 download_trash_model.py --check
+```
 
 > [!WARNING]
-> **Placeholder Fallback Warning**: If `yolov8_trash.pt` is missing, `perception.py` falls back to `yolov8n.pt` (generic COCO weights). Standard COCO weights **cannot detect waste categories** and will misclassify items (e.g. computer mouse as apple, ceiling fan as airplane, bottle as vase). An unmissable warning will be printed in the console and shown on the preview window.
+> If `yolov8_trash.pt` is missing, the robot falls back to `yolov8n.pt` with a loud warning. **Test your demo objects against the model before the final demo** — "cup" may not be one of the model's 10 classes. The 10 classes are: `paper`, `can`, `cardboard`, `plastic`, `plastic bag`, `plastic bottle`, `battery`, `glass bottle`, `pop tab`, `drink carton`.
 
 ---
 
-## Stage 4: Camera Verification
+## Stage 4: Flash Arduino Firmware
 
-Before running YOLO, verify that the Pi Camera V2 is recognized:
-
-1. **Check OS Camera Detection**:
-   ```bash
-   rpicam-hello --list-cameras
-   ```
-   *Should list: `imx219 [3280x2464 10-bit]` (Pi Camera V2).*
-
-2. **Test Stream Capture**:
-   - `pi/perception.py` uses native **Picamera2** by default, capturing directly at 320x320 without requiring `libcamerify`.
-   - On Raspberry Pi OS Bookworm with libcamera v0.6+, running OpenCV with `libcamerify` can trigger `Assertion '!isArray_' failed`. Native Picamera2 avoids this entirely.
+1. Open `arduino/robot_control/robot_control.ino` in the Arduino IDE.
+2. Verify the pin constants at the top match your wiring (they should — pins are from lab sketches).
+3. Click **Upload**.
+4. Open Serial Monitor (115200 baud) and verify it prints `READY`.
+5. **CLOSE the Serial Monitor** before running the Pi script (only one process can hold the serial port).
 
 ---
 
-## Stage 5: Hardware Pin Discovery (`pin_probe.ino`)
+## Stage 5: Camera Verification
 
-**MANDATORY PRE-RUN STEP**: Before flashing `pointer_control.ino`, discover the actual pins wired to the shield.
-
-1. Open Arduino IDE on your laptop or Pi.
-2. Open `arduino/pin_probe/pin_probe.ino`.
-
-### Step 5A: Identify the Servo Pin
-1. Ensure `#define RUN_SERVO_PROBE` is uncommented in `pin_probe.ino`.
-2. Upload to the Uno and open the **Serial Monitor at 115200 baud**.
-3. Watch the announcements:
-   ```text
-   >>> Testing SERVO on Pin: 2
-   >>> Testing SERVO on Pin: 3
-   ...
-   ```
-4. Each pin runs a 2-second visual wiggle ($30^\circ \rightarrow 150^\circ \rightarrow 90^\circ$). When the physical servo wiggles, record that **Pin Number**.
-
-### Step 5B: Identify the Ultrasonic Trig/Echo Pin Pair
-1. In `pin_probe.ino`:
-   - Comment out `RUN_SERVO_PROBE`.
-   - Uncomment `#define RUN_ULTRASONIC_PROBE`.
-   - Set `#define EXCLUDED_SERVO_PIN <pin_from_5A>` (so the servo is not jittered).
-2. Upload and open Serial Monitor at 115200 baud.
-3. Wave your hand $10\text{--}30\text{ cm}$ in front of the HC-SR04 sensor.
-4. The probe scans candidate Trig/Echo pairs and prints valid echo returns:
-   ```text
-   [DETECTED ECHO] Trig=9 | Echo=10 | Distance=18.4 cm
-   ```
-5. Move your hand closer and further to verify which pair tracks your hand movements. Record **Trig Pin** and **Echo Pin**.
-
----
-
-## Stage 6: Flash Production Firmware (`pointer_control.ino`)
-
-1. Open `arduino/pointer_control/pointer_control.ino`.
-2. Update the verified pins at the top:
-   ```cpp
-   #define SERVO_PIN <VERIFIED_SERVO_PIN>
-   #define TRIG_PIN  <VERIFIED_TRIG_PIN>
-   #define ECHO_PIN  <VERIFIED_ECHO_PIN>
-   ```
-3. Update the comment line:
-   ```cpp
-   // CONFIRMED VIA pin_probe.ino ON YYYY-MM-DD
-   ```
-4. Click **Upload**.
-5. Briefly open the Serial Monitor (115200 baud) to confirm it prints:
-   ```text
-   READY
-   ```
-6. **CRITICAL STEP**: **Close the Arduino Serial Monitor window!**
-   *(Only one process can hold the serial port at a time. If the Serial Monitor is open, `perception.py` will fail with `PermissionError`)*.
-
----
-
-## Stage 7: Run the Full Live Pipeline
-
-### 7.1 Verify Serial Port Name
 ```bash
-ls /dev/ttyACM* /dev/ttyUSB*
+rpicam-hello --list-cameras
+# Should list: imx219 [3280x2464 10-bit] (Pi Camera V2)
 ```
-*(Typically `/dev/ttyACM0` on the Pi)*.
 
-### 7.2 Run Tracking & Pointing
+---
+
+## Stage 6: Bench Testing (wheels off the ground!)
+
+> [!CAUTION]
+> Always test with wheels **off the ground** first! Place the car on a box or hold it up.
+
+### 6.1 Direction Verification
+
 ```bash
-cd ~/cog
-source .venv/bin/activate
+cd ~/cog && source .venv/bin/activate
 
-# Standard run with live preview:
-python3 pi/perception.py --port /dev/ttyACM0 --baud 115200 --show
-
-# Headless run (without monitor / X11 display):
-python3 pi/perception.py --port /dev/ttyACM0 --baud 115200 --no-show
+# Run with preview to see what the camera sees:
+python3 pi/robot.py --preview --no-shutdown
 ```
 
-### 7.3 Understanding Terminal Logs
+**Verify**:
+- `F` commands spin the wheels **toward the camera/ultrasonic** side (physical forward).
+- Pivot left and right turn the correct way.
+- If reversed: the direction mapping in the firmware needs swapping (unlikely — these values are from verified sketches).
 
-**Continuous Tracking Phase (Target Moving / Off-Center)**:
-```text
-[FRAME 00042] TARGET: class=plastic bottle | conf=0.86 | bearing=+14.2° (right ) | dist_est=38.4cm | servo=104° | stable=0/5
-[FRAME 00043] TARGET: class=plastic bottle | conf=0.87 | bearing=+8.1°  (right ) | dist_est=37.1cm | servo=98°  | stable=0/5
+### 6.2 Motor Calibration with Teleop
+
+```bash
+python3 pi/robot.py --teleop --preview
 ```
-*Servo is updated every single frame (`P,<servo_angle>`), pointing dynamically as the waste moves.*
 
-**Stability Lock & Ultrasonic Confirmation Phase**:
-```text
-[FRAME 00048] TARGET: class=plastic bottle | conf=0.89 | bearing=+1.2°  (center) | dist_est=35.0cm | servo=91°  | stable=3/5
-[FRAME 00049] TARGET: class=plastic bottle | conf=0.91 | bearing=+0.4°  (center) | dist_est=34.8cm | servo=90°  | stable=4/5
-[FRAME 00050] TARGET: class=plastic bottle | conf=0.92 | bearing=-0.3°  (center) | dist_est=35.1cm | servo=90°  | stable=5/5
+**Keys**: `w`=forward, `s`=backward, `a`=left, `d`=right, `q`=quit, `u`=ultrasonic query, `+`/`-`=adjust duration.
 
->>> CONFIRMED: plastic bottle @ 34.6cm (Stable lock at 90°)
+**Calibrate on the real floor**:
+
+1. **TURN_MS_PER_DEG**: Place the car on the floor. Tap `a` or `d` and measure how many degrees it turns per keypress. Adjust with `+`/`-` until a known angle is achieved. Calculate: `ms_per_keypress / degrees_turned`.
+2. **DRIVE_MS_PER_CM**: Tap `w` and measure how many cm the car moves. Calculate: `ms_per_keypress / cm_moved`.
+
+> [!TIP]
+> **Redo calibration when batteries are low.** Timed moves drift as motor battery voltage sags. Fresh batteries will make the car faster — you'll over-shoot if using old calibration values.
+
+### 6.3 Model Object Test
+
+Place your demo objects (the same ones you'll use in the demo) in front of the camera and run:
+
+```bash
+python3 pi/robot.py --mock --preview
 ```
-*Target remained within $\pm 3^\circ$ deadband for 5 consecutive frames. Ultrasonic `Q` query fired and distance was confirmed.*
 
-**Target Drift or Absence**:
-```text
-[FRAME 00055] TARGET: class=plastic bottle | conf=0.82 | bearing=-7.5°  (left  ) | dist_est=36.0cm | servo=82°  | stable=0/5
-[FRAME 00060] not waste — no target (holding 82°)
-```
-*If the target moves outside the deadband, the stability counter resets to 0. If target is lost, servo holds its last commanded angle.*
+Verify that each object is detected and classified. If an object isn't detected, it's not in the model's training set — the car will never drive to it.
 
 ---
 
-## Stage 8: Calibration & Verification
+## Stage 7: Install Auto-Start Service
 
-### 8.1 Direction Calibration (`--servo-direction`)
-1. Place a waste object to the **right** of the camera center.
-2. Check terminal: bearing should be positive ($> 0^\circ$).
-3. Observe physical servo:
-   - **Points right toward the object**: Direction is correct (`--servo-direction 1`, default).
-   - **Turns left away from the object**: Stop script (`Ctrl+C`) and re-launch with:
-     ```bash
-     python3 pi/perception.py --port /dev/ttyACM0 --servo-direction -1 --show
-     ```
+```bash
+# Create log directory
+mkdir -p ~/cog/logs
 
-### 8.2 Mechanical Center Alignment
-1. Place an object dead-center along the camera's optical axis (`bearing ≈ 0.0°`).
-2. The servo receives command $90^\circ$.
-3. If the pointer points slightly off-center (e.g., $5^\circ$ to one side):
-   - Unscrew the SG90 plastic horn, set servo to $90^\circ$, and remount the horn so it points straight ahead.
+# Install systemd service
+sudo cp systemd/cog-robot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable cog-robot.service
 
-### 8.3 Focal Length Calibration (`--focal-length`)
-Estimate distance from bounding box height using calibrated pinhole optics:
-1. Place a known object (e.g. 20 cm plastic bottle) at $30\text{ cm}$ and record pixel height ($h_1$).
-2. Move it to $100\text{ cm}$ and record pixel height ($h_2$).
-3. Run the calibration helper:
+# Install sudoers for passwordless shutdown
+sudo cp systemd/cog-shutdown.sudoers /etc/sudoers.d/cog-shutdown
+sudo chmod 0440 /etc/sudoers.d/cog-shutdown
+sudo visudo -c  # Validate syntax
+```
+
+---
+
+## Stage 8: Full Autonomous Test
+
+1. Disable the service temporarily:
    ```bash
-   python3 pi/perception.py --calibrate-focal 20.0 30.0 <h1_px> 100.0 <h2_px>
+   sudo systemctl stop cog-robot.service
    ```
-4. Copy the recommended focal length and run with:
+2. Place 2–3 demo objects on the floor.
+3. Run manually with `--no-shutdown` first:
    ```bash
-   python3 pi/perception.py --focal-length <CALIBRATED_PX>
+   python3 pi/robot.py --no-shutdown
    ```
+4. Watch the car scan, drive to objects, light LEDs, and reach DONE.
+5. When satisfied, enable the service and reboot:
+   ```bash
+   sudo systemctl enable cog-robot.service
+   sudo reboot
+   ```
+6. Watch the car start by itself after boot.
 
 ---
 
-## Command Line Arguments Reference
+## Stage 9: Demo Day
 
-| Flag | Default | Description |
-| :--- | :--- | :--- |
-| `--model` | `yolov8_trash.pt` | Path to YOLO weights checkpoint |
-| `--source` | `0` | Camera index (`0` for Pi Camera) or video file path |
-| `--imgsz` | `320` | Resolution width/height for capture and inference |
-| `--conf` | `0.25` | Confidence threshold for detection |
-| `--port` | `/dev/ttyACM0` | Arduino serial port |
-| `--baud` | `115200` | Arduino baud rate |
-| `--mock` | `False` | Run without physical Arduino hardware |
-| `--mock-dist` | `45.0` | Simulated distance in cm when in mock mode |
-| `--servo-direction` | `1` | Direction multiplier: `+1` (standard) or `-1` (inverted) |
-| `--fov` | `62.2` | Camera horizontal FOV in degrees (Pi Camera V2) |
-| `--deadband` | `3.0` | Angular deadband in degrees for 'center' classification |
-| `--stable-frames` | `5` | Consecutive centered frames required before ultrasonic read |
-| `--focal-length` | `320.0` | Calibrated focal length in pixels for bbox distance estimation |
-| `--min-dist` | `2.0` | Minimum valid ultrasonic distance (cm) |
-| `--max-dist` | `200.0` | Maximum valid ultrasonic distance (cm) |
-| `--show` / `--no-show` | `--show` | Enable/disable OpenCV preview window |
-| `--calibrate-focal` | None | Run 2-point focal length calibration math and exit |
+1. Disable the service if you need to make adjustments:
+   ```bash
+   sudo systemctl disable cog-robot.service
+   ```
+2. Place the car on the floor, scatter the demo objects.
+3. Power on the Pi (connect the power bank).
+4. The robot starts automatically:
+   - Blinks both LEDs twice → "ready".
+   - Waits 10 seconds for people to step away.
+   - Scans, drives, classifies, lights LEDs.
+   - When done: blinks, alternates LEDs, shuts down.
+5. **Wait for the Pi's green ACT LED to stop blinking before cutting power.**
 
 ---
 
-## Phase 2 Readiness Sign-Off Checklist
+## Reading Logs
 
-- [ ] Pi 4B runs 64-bit OS (`aarch64`) with YOLOv8 inference running at ~10–15 FPS.
-- [ ] Pi Camera V2 captures frames reliably.
-- [ ] Physical pins verified with `pin_probe.ino` and flashed to `pointer_control.ino`.
-- [ ] `yolov8_trash.pt` downloaded and verified via `download_trash_model.py --check`.
-- [ ] Continuous tracking updates servo angle live (`P,<angle>`) on every qualifying frame.
-- [ ] Ultrasonic query (`Q`) fires only after target is centered for $\ge 5$ consecutive frames.
-- [ ] Target drift resets stability counter and clears confirmation lock.
-- [ ] Servo holds last position when target is lost.
-- [ ] Calibration values recorded:
-  - `SERVO_PIN`: ______
-  - `TRIG_PIN`: ______
-  - `ECHO_PIN`: ______
-  - `SERVO_DIRECTION`: `+1` or `-1`
-  - `FOCAL_LENGTH_PX`: ______
+```bash
+# Live journal:
+journalctl -u cog-robot.service -f
 
-**You are now fully ready for Phase 2 (Chassis Locomotion & State Machine)!**
+# Log file:
+tail -f ~/cog/logs/robot.log
+
+# Last run:
+cat ~/cog/logs/robot.log
+```
+
+---
+
+## Disabling Auto-Start for Development
+
+```bash
+sudo systemctl disable cog-robot.service
+sudo systemctl stop cog-robot.service
+```
+
+Then run the robot manually with `--preview` and `--no-shutdown` during development.
+
+---
+
+## Troubleshooting
+
+| Symptom | Fix |
+|:--|:--|
+| Red LED blinks rapidly on boot | Arduino not found, model missing, or camera failed. Check `robot.log`. |
+| Car drives the wrong way | Direction mapping is swapped. Re-check `robot_control.ino` pin assignments. |
+| Car overshoots or undershoots | Recalibrate `--turn-ms-per-deg` and `--forward-burst-ms` with `--teleop`. |
+| Objects not detected | Object may not be in the model's 10 classes. Test with `--preview`. |
+| Serial permission denied | Run `sudo usermod -a -G dialout pi` and reboot. Or close Arduino Serial Monitor. |
+| Service won't start | Check `journalctl -u cog-robot.service -e` for errors. |

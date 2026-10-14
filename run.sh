@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# run.sh - Automated runner for Phase 1 Waste-Detection Pointing System
+# run.sh - Automated runner for Autonomous Waste-Detection Robot
 
 set -e
 
 echo "=========================================================="
-echo "   Waste Robot — Phase 1 Continuous Tracker Launcher     "
+echo "      COG — Autonomous Waste-Detection Robot Launcher     "
 echo "=========================================================="
 
 # 1. Ensure we are in the script's root directory
@@ -41,12 +41,13 @@ fi
 # 5. Launch in appropriate mode
 if [ -n "$ARDUINO_PORT" ]; then
     echo "[HARDWARE] Arduino detected at: $ARDUINO_PORT"
-    echo "[LAUNCH] Starting in REAL HARDWARE CONTINUOUS TRACKING MODE..."
+    echo "[LAUNCH] Starting autonomous robot with Arduino hardware..."
     echo "----------------------------------------------------------"
-    python3 pi/perception.py --port "$ARDUINO_PORT" --baud 115200 --model "$MODEL" --imgsz 320 --show "$@"
+    python3 pi/robot.py --port "$ARDUINO_PORT" --baud 115200 --model "$MODEL" --imgsz 320 "$@"
 else
     echo "[HARDWARE] No Arduino detected on /dev/ttyACM* or /dev/ttyUSB*."
-    echo "[LAUNCH] Starting in MOCK SERIAL CONTINUOUS TRACKING MODE..."
+    echo "[LAUNCH] Starting autonomous robot in MOCK mode..."
     echo "----------------------------------------------------------"
-    python3 pi/perception.py --mock --model "$MODEL" --imgsz 320 --show "$@"
+    python3 pi/robot.py --mock --model "$MODEL" --imgsz 320 "$@"
 fi
+
