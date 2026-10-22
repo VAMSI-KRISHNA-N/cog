@@ -127,18 +127,35 @@ def main():
     if args.check:
         print(f"[CHECK] Verifying '{args.output}'...")
         ok = verify_model(args.output)
+        if not ok and args.output == TARGET_MODEL_PATH and os.path.exists("yolov8n.pt"):
+            print("\n[CHECK] Note: 'yolov8_trash.pt' is not present, checking fallback 'yolov8n.pt'...")
+            ok = verify_model("yolov8n.pt")
+            if ok:
+                print("\n[SUCCESS] 'yolov8n.pt' is verified and will be used automatically by robot.py!")
+                sys.exit(0)
         sys.exit(0 if ok else 1)
 
     if os.path.exists(args.output):
         print(f"[INFO] '{args.output}' already exists in current directory.")
         ok = verify_model(args.output)
         if ok:
-            print(f"[SUCCESS] '{args.output}' is ready for use with perception.py!")
+            print(f"[SUCCESS] '{args.output}' is ready for use with robot.py!")
             return
 
     if not args.api_key:
-        print_manual_guide(args.output)
-        return
+        print("[INFO] No Roboflow API key provided. Downloading pre-trained 12-class waste model directly from Hugging Face...")
+        hf_url = "https://huggingface.co/kendrickfff/waste-classification-yolov8-ken/resolve/main/yolov8n-waste-12cls-best.pt"
+        import subprocess
+        try:
+            cmd = ["curl", "-L", "-A", "Mozilla/5.0", "-o", args.output, hf_url]
+            subprocess.run(cmd, check=True)
+            if verify_model(args.output):
+                print(f"[SUCCESS] Successfully downloaded and verified '{args.output}'!")
+                return
+        except Exception as e:
+            print(f"[WARNING] Direct download failed ({e}). Showing manual instructions...")
+            print_manual_guide(args.output)
+            return
 
     try:
         from roboflow import Roboflow

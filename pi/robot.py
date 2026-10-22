@@ -21,12 +21,27 @@ Usage:
     python3 pi/robot.py --mock
 """
 
+import os
+import sys
+
+# --- Automatically use .venv if running with system Python ---
+if sys.prefix == sys.base_prefix:
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    candidates = [
+        os.path.join(repo_root, ".venv", "Scripts", "python.exe"),
+        os.path.join(repo_root, ".venv", "bin", "python3"),
+        os.path.join(repo_root, ".venv", "bin", "python"),
+    ]
+    for venv_py in candidates:
+        if os.path.exists(venv_py) and os.path.abspath(sys.executable) != os.path.abspath(venv_py):
+            import subprocess
+            res = subprocess.run([venv_py] + sys.argv)
+            sys.exit(res.returncode)
+
 import argparse
 import enum
-import os
 import signal
 import subprocess
-import sys
 import time
 
 # Add pi directory to path so imports work from the repo root
@@ -69,10 +84,12 @@ EMERGENCY_STOP_CM = 8.0        # ultrasonic danger threshold
 STALE_FRAMES_DISCARD = 2       # frames to discard before inference
 MAX_CONSECUTIVE_LOST = 3       # consecutive lost frames before returning to SCAN
 
-# 10 Standard Waste Classes from Roboflow Universe yolov8-trash-detections
+# Waste classes covering dedicated waste models and COCO containers
 WASTE_CLASSES = {
     "paper", "can", "cardboard", "plastic", "plastic bag",
     "plastic bottle", "battery", "glass bottle", "pop tab", "drink carton",
+    "biological", "brown-glass", "green-glass", "metal",
+    "trash", "white-glass", "bottle", "cup", "bowl", "vase",
 }
 
 
@@ -250,9 +267,14 @@ def detect_target(model, frame, conf_threshold: float, class_names: dict, is_pla
         qualifies = cls_name in WASTE_CLASSES
         if not qualifies and is_placeholder:
             qualifies = cls_name in {
-                "bottle", "cup", "cell phone", "mouse", "apple", "banana",
+                "bottle", "cup", "cell phone", "mouse", "book", "apple", "banana",
                 "fork", "knife", "spoon",
             }
+
+        # Ignore giant bounding boxes covering more than 60% of the frame
+        b_xyxy = box.xyxy[0].cpu().numpy()
+        if (b_xyxy[2] - b_xyxy[0]) >= 0.60 * IMGSZ and (b_xyxy[3] - b_xyxy[1]) >= 0.60 * IMGSZ:
+            qualifies = False
 
         if qualifies and conf > best_conf:
             best_conf = conf
@@ -264,8 +286,12 @@ def detect_target(model, frame, conf_threshold: float, class_names: dict, is_pla
     best_box = boxes[best_idx]
     xyxy = best_box.xyxy[0].cpu().numpy()
     cls_id = int(best_box.cls[0].cpu().numpy())
-    cls_name = class_names.get(cls_id, f"class_{cls_id}")
+    cls_name = class_names.get(cls_id, f"class_{cls_id}").lower().strip()
     x1, y1, x2, y2 = xyxy
+
+    # Reclassify tall cylindrical containers mistakenly predicted as cell phone
+    if cls_name == "cell phone" and ((y2 - y1) / max(1.0, (x2 - x1))) >= 2.1:
+        cls_name = "bottle"
 
     return {
         "class": cls_name,
@@ -357,7 +383,7 @@ def parse_args():
                    help="Simulated serial/LEDs — runs full state machine on a laptop.")
 
     # Model / camera
-    p.add_argument("--model", default="yolov8_trash.pt", help="YOLO model path.")
+    p.add_argument("--model", default="yolov8n.pt", help="YOLO model path (yolov8n.pt recommended for fast 30+ FPS).")
     p.add_argument("--source", default="0", help="Camera index or video path.")
     p.add_argument("--imgsz", type=int, default=IMGSZ, help="Capture resolution.")
     p.add_argument("--conf", type=float, default=CONF_THRESHOLD, help="Detection confidence.")
@@ -836,11 +862,14 @@ def main():
                         state = State.SCAN
 
             # -------------------------------------------------------
-            # VERDICT: classify based on mean confidence
+            # VERDICT: classify based on class type and mean confidence
             # -------------------------------------------------------
             elif state == State.VERDICT:
                 mean_conf = sum(conf_window) / max(len(conf_window), 1)
-                if mean_conf >= args.waste_conf:
+                is_waste_item = (target_class.lower() in WASTE_CLASSES or
+                                 target_class.lower() in {"bottle", "cup", "can", "wine glass", "bowl", "plastic bottle", "drink can"})
+
+                if is_waste_item and mean_conf >= args.waste_conf:
                     led_color = "green"
                     waste_count += 1
                     verdict = "WASTE"
@@ -849,8 +878,8 @@ def main():
                     not_waste_count += 1
                     verdict = "NOT WASTE"
 
-                print(f"[VERDICT] {target_class} mean_conf={mean_conf:.2f} -> "
-                      f"{verdict} -> {led_color.upper()}")
+                print(f"[VERDICT] {target_class} (mean_conf={mean_conf:.2f}, waste_type={is_waste_item}) -> "
+                      f"{verdict} -> {led_color.upper()} LED")
                 state = State.INDICATE
 
             # -------------------------------------------------------

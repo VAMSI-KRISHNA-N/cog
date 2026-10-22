@@ -213,8 +213,8 @@ Enable the robot to boot and run completely autonomously with no keyboard or mon
 # Ensure log folder exists
 mkdir -p ~/cog/logs
 
-# Install systemd service unit
-sudo cp systemd/cog-robot.service /etc/systemd/system/
+# Install systemd service unit (automatically adapts to your username, e.g. raspberry or pi)
+sed "s|/home/pi|/home/$USER|g; s|User=pi|User=$USER|g; s|Group=pi|Group=$USER|g" systemd/cog-robot.service | sudo tee /etc/systemd/system/cog-robot.service
 sudo systemctl daemon-reload
 sudo systemctl enable cog-robot.service
 ```

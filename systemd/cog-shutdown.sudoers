@@ -8,4 +8,7 @@
 #   sudo chmod 0440 /etc/sudoers.d/cog-shutdown
 #   sudo visudo -c   # Validate syntax
 #
+# Allow pi and raspberry users (or any member of sudo group) to run shutdown without password
 pi ALL=(ALL) NOPASSWD: /sbin/shutdown -h now
+raspberry ALL=(ALL) NOPASSWD: /sbin/shutdown -h now
+%sudo ALL=(ALL) NOPASSWD: /sbin/shutdown -h now
