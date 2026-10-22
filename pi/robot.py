@@ -79,7 +79,7 @@ MAX_RUN_S = 300.0              # global time limit in seconds
 RED_LED_PIN = 17               # BCM pin for red LED
 GREEN_LED_PIN = 27             # BCM pin for green LED
 CONF_THRESHOLD = 0.25          # YOLO confidence cutoff
-IMGSZ = 320                    # capture and inference resolution
+IMGSZ = 224                    # capture and inference resolution (224 is fast on Pi 4)
 EMERGENCY_STOP_CM = 8.0        # ultrasonic danger threshold
 STALE_FRAMES_DISCARD = 2       # frames to discard before inference
 MAX_CONSECUTIVE_LOST = 3       # consecutive lost frames before returning to SCAN
@@ -248,9 +248,9 @@ def detect_target(model, frame, conf_threshold: float, class_names: dict, is_pla
     try:
         import torch
         with torch.inference_mode():
-            results = model(frame, conf=conf_threshold, verbose=False)
+            results = model(frame, imgsz=224, conf=conf_threshold, verbose=False)
     except Exception:
-        results = model(frame, conf=conf_threshold, verbose=False)
+        results = model(frame, imgsz=224, conf=conf_threshold, verbose=False)
 
     boxes = results[0].boxes if len(results) > 0 else None
     if boxes is None or len(boxes) == 0:

@@ -28,7 +28,7 @@ const int ECHO_PIN = 13;
 // Pin 10: IR sensor (reserved)
 
 // --- Default Motor Speed (0–255 PWM) ---
-int motorSpeed = 150;
+int motorSpeed = 220;
 
 // --- Ultrasonic Measurement Bounds (cm) ---
 const float MIN_DISTANCE_CM = 2.0;
