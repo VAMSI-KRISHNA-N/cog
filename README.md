@@ -1,16 +1,6 @@
 # COG — Autonomous Waste-Detection Robot
 
-**DA3 Course Project Submission & Demonstration Documentation**  
-*Assessment Due Date:* November 3, 2026 | 11:59 PM  
-*Demonstration Status:* **Successfully Evaluated & Verified Live Before Course Faculty**
-
----
-
-## Executive Summary
-
-The **COG Autonomous Robot** is a fully autonomous 4-wheel-drive (4WD) robotic vehicle engineered to detect, navigate toward, and classify floor waste in indoor environments with **zero human intervention at runtime**. 
-
-During the live faculty evaluation, the physical robot was placed in a test arena with target objects (including a paper cup and plastic water bottle). The robot autonomously executed a 360° sweeping scan, detected the target cup, performed closed-loop visual servoing to center the object in its optical axis, pulsed forward to the arrival threshold, classified the object as **WASTE**, illuminated the **Green Status LED** for 3.0 seconds, and executed an obstacle-clearing reverse and pivot maneuver to continue searching. The course faculty confirmed 100% operational success.
+An autonomous 4-wheel-drive (4WD) robotic platform engineered to detect, navigate toward, and classify floor waste in indoor environments using computer vision edge inference and closed-loop motor control.
 
 ---
 
@@ -141,9 +131,8 @@ pip install -r requirements.txt
 - `opencv-python>=4.8.0` (Computer vision & preview rendering)
 - `pyserial>=3.5` (Serial communications protocol)
 - `numpy>=1.23.0` (Geometric and matrix math)
-- `python-docx>=1.0.0` (DA3 submission report generation)
-- `matplotlib>=3.7.0` (Flowchart & visualization generation)
 - `RPi.GPIO>=0.7.0` (Raspberry Pi hardware GPIO control on Linux)
+
 
 ---
 
@@ -232,20 +221,25 @@ High-speed non-blocking newline-delimited serial protocol (115200 baud):
 
 ---
 
-## 7. Submission Package Contents
+## 7. Repository Layout
 
-As per the DA3 submission instructions:
-1. **Codes**: Fully documented source code in `pi/`, `arduino/`, `simulate.py`, and `test_motors.py`.
-2. **Sample Input and Output Files**: Located in `samples/`:
-   - `sample_input_cup_scene.jpg`: Floor arena input image with paper cup.
-   - `sample_input_bottle_scene.jpg`: Floor arena input image with plastic bottle.
-   - `sample_test_feed.mp4`: Demonstration video input feed.
-   - `sample_output_preview_approach.jpg`: Real-time HUD showing bounding box and `State: APPROACH`.
-   - `sample_output_preview_align.jpg`: Real-time HUD showing `State: ALIGN`.
-   - `live_demonstration_telemetry.txt`: Complete terminal log recorded during live faculty evaluation.
-3. **Readme File**: This `README.md` file indicating what to install, how to run, and technical specifications.
-4. **Word File (`DA3_Submission_Report.docx`)**:
-   - High-resolution system flowchart.
-   - Real-time working screen and camera HUD preview screenshots.
-   - Live floor demonstration photos and robot hardware setup.
-   - Output serial logs and state machine telemetry.
+```
+cog/
+├── pi/                         # Raspberry Pi autonomy software
+│   ├── robot.py                # Main 7-state finite state machine & loop
+│   ├── perception.py           # YOLOv8 object detector & target tracker
+│   ├── serial_interface.py     # Resilient Arduino serial protocol
+│   └── geometry.py             # Coordinate math, visual servoing & projection
+├── arduino/
+│   └── robot_control/
+│       └── robot_control.ino   # Arduino firmware (L298N motors & HC-SR04)
+├── systemd/
+│   ├── cog-robot.service       # Automatic boot launch service
+│   └── cog-shutdown.sudoers    # Passwordless shutdown privileges for daemon
+├── check_pi.py                 # Pre-flight diagnostic hardware test
+├── test_motors.py              # Hardware motor directional check
+├── simulate.py                 # PC GUI & headless simulator testbed
+├── requirements.txt            # Python dependencies
+└── README.md                   # System documentation
+```
+

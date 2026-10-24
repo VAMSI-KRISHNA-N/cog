@@ -19,5 +19,16 @@ Thumbs.db
 .idea/
 logs/
 *.pt
+
+# Assignment, reports, and media (do not push to git)
+*.docx
+*.jpg
+*.jpeg
+*.png
+*.mp4
 videos/
+samples/
+diagrams/
 docx_figures/
+build_word_report.py
+
